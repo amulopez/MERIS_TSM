@@ -11,7 +11,7 @@ while IFS= read -r url; do
     echo "Starting download for: $url"
 
     # Run wget to download the first file in the list (simulate the shell script's operation)
-    wget --user="amanda.m.lopez@jpl.nasa.gov" --password="LunaOH515!" --continue --directory-prefix="$DOWNLOAD_DIR" "$url"
+    wget --user="INSERT_YOURS" --password="INSERT_YOUR_PASSWORD" --continue --directory-prefix="$DOWNLOAD_DIR" "$url"
 
 
     # Extract the filename from the URL
