@@ -44,7 +44,7 @@ all_dataarrays = []
 # Load Geom
 roi = gpd.read_file("/Users/lopezama/Documents/Blackwood/MERIS/ROI/west_us_poly_ll/west_us_poly_ll.shp")
 roi = roi.to_crs("EPSG:4326")
-roi_geom = [mapping(roi.geometry.unary_union)]
+roi_geom = [mapping(roi.geometry.union_all())]
 
 # Build reference grid once
 lat_min, lat_max = 30, 50
