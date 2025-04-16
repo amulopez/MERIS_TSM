@@ -1,0 +1,9 @@
+# Geographic bounding box: [lon_min, lat_min, lon_max, lat_max]
+bbox: [-124.566244, 32.534156, -114.131211, 49.002494]
+
+# Temporal range for data query
+start: 2010-04-01
+end: 2010-04-03
+
+# Output directory for downloaded and processed data
+out: ./MERIS_downloads
