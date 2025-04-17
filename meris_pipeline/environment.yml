@@ -1,0 +1,21 @@
+name: meris_tsm
+
+dependencies:
+  - python=3.10
+  - xarray
+  - rioxarray
+  - geopandas
+  - earthaccess
+  - pyresample
+  - cartopy
+  - dask          # <-- added manually
+  - distributed   # (optional, if installed)
+  - matplotlib
+  - numpy
+  - pandas
+  - shapely
+  - rasterio
+  - netCDF4
+  - scipy
+  - tqdm
+  - pyyaml

@@ -3,7 +3,7 @@ bbox: [-124.566244, 32.534156, -114.131211, 49.002494]
 
 # Temporal range for data query
 start: 2010-04-01
-end: 2010-04-03
+end: 2010-04-02
 
 # Output directory for downloaded and processed data
-out: ./MERIS_downloads
+out: MERIS_downloads

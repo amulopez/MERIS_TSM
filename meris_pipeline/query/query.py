@@ -1,40 +1,54 @@
-from earthaccess import Auth, search_data, download
-from processing.postprocess import postprocess_granule
 from pathlib import Path
-import zipfile
-import shutil
+import earthaccess
+from processing.postprocess import postprocess_granule
+from processing.create_geotiff_from_swath import create_geotiff_from_swath
 
+def query_and_download_meris(bbox, start, end, output_root):
+    """
+    Query and download MERIS TSM granules, postprocess, and create GeoTIFFs.
+    """
+    print("🔑 Logging into Earthdata...")
+    auth = earthaccess.login(strategy="netrc", persist=True)
 
-def query_and_download_meris(bbox, start, end, output):
-    # Authenticate using earthaccess
-    auth = Auth().login()
+    if not auth.authenticated:
+        raise RuntimeError("Earthdata login failed!")
 
-    # Search for granules in time and space range
-    print("Searching for MERIS L2 Full Resolution granules...")
-    granules = search_data(
+    print(f"🌍 Searching MERIS L2 Full Resolution TSM (bbox={bbox}, start={start}, end={end})...")
+
+    lon_min, lat_min, lon_max, lat_max = bbox
+
+    granules = earthaccess.search_data(
         short_name="EN1_MDSI_MER_FRS_2P",
-        cloud_hosted=False,
-        bounding_box=tuple(bbox),
-        temporal=(start, end)
+        bounding_box=(lon_min, lat_min, lon_max, lat_max),
+        temporal=(start, end),
+        cloud_hosted=True,
     )
 
     if not granules:
-        print("No granules found.")
+        print("⚠️ No MERIS TSM granules found matching query parameters.")
         return
 
-    print(f"Found {len(granules)} granules. Downloading sequentially (local mode)...")
-    output_path = Path(output)
-    output_path.mkdir(parents=True, exist_ok=True)
+    print(f"📦 Found {len(granules)} granules. Starting download and postprocessing...")
 
-    processed = []
-    for granule in granules:
+    output_root = Path(output_root)
+    download_folder = output_root / "raw"
+    geotiff_folder = output_root / "geotiffs"
+    download_folder.mkdir(parents=True, exist_ok=True)
+    geotiff_folder.mkdir(parents=True, exist_ok=True)
+
+    downloaded_files = earthaccess.download(granules, download_folder)
+
+    # Postprocess
+    for file_path in downloaded_files:
         try:
-            result = download([granule], local_path=output_path)
-            if result:
-                proc = postprocess_granule(result[0], output_path)
-                if proc:
-                    processed.append(proc)
-        except Exception as e:
-            print(f"Failed to process granule: {e}")
+            print(f"🧹 Postprocessing {file_path}...")
 
-    print(f"Successfully processed {len(processed)} granules.")
+            output_folder = postprocess_granule(file_path, output_root)
+
+            if output_folder is not None:
+                create_geotiff_from_swath(output_folder, geotiff_folder)
+
+        except Exception as e:
+            print(f"❌ Failed to process {file_path}: {e}")
+
+    print("🎉 Downloading, cleaning, and GeoTIFF creation complete!")
