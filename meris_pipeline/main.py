@@ -1,15 +1,14 @@
-import argparse
 from pathlib import Path
+import argparse
 from utils.config import load_config
 from query.query import query_and_download_meris
-from stack_tsms import stack_regridded_tsms, load_stacked_tsms_from_geotiffs
-from processing.postprocess_and_geotiff import postprocess_and_geotiff_granule
+from stack_tsms import load_stacked_tsms_from_geotiffs
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Download, process, and stack MERIS TSM L2 data")
-    parser.add_argument("--config", type=str, required=True, help="Path to YAML config file")
-    parser.add_argument("--skip_query", action="store_true", help="Skip query and download (process existing ZIPs)")
-    parser.add_argument("--shapefile", type=str, help="Optional shapefile to crop final stack")
+    parser = argparse.ArgumentParser(description="MERIS TSM Pipeline")
+    parser.add_argument("--config", type=str, required=True, help="Path to config.yaml")
+    parser.add_argument("--skip_query", action="store_true", help="Skip query and download")
+    parser.add_argument("--shapefile", type=str, help="Optional shapefile for clipping")
     return parser.parse_args()
 
 def main():
@@ -22,33 +21,16 @@ def main():
     output = Path(config.get("out", "./MERIS_downloads"))
 
     if not args.skip_query:
-        print("\n🔎 Starting query and download...")
+        print("🔎 Starting query and download...")
         query_and_download_meris(bbox, start, end, output)
-    else:
-        print("\n⏩ Skipping query step, proceeding with postprocessing...")
 
-    print("\n🛠️ Postprocessing downloaded ZIP files...")
-    zip_files = list((output).glob("*.ZIP"))
-
-    if not zip_files:
-        print(f"⚠️ No ZIP files found in {output}. Check your setup.")
-    else:
-        for zip_path in zip_files:
-            postprocess_and_geotiff_granule(zip_path, output)
-
-    print("\n📚 Starting stacking...")
+    print("📚 Starting stacking...")
     geotiff_folder = output / "geotiffs"
+    stacked = load_stacked_tsms_from_geotiffs(geotiff_folder, shapefile=args.shapefile)
 
-    if geotiff_folder.exists() and any(geotiff_folder.glob("*.tif")):
-        print(f"⚡ Loading stack directly from saved GeoTIFFs in {geotiff_folder}...")
-        stacked = load_stacked_tsms_from_geotiffs(geotiff_folder)
-    else:
-        print(f"❗ No GeoTIFFs found, attempting direct regridding from processed folders...")
-        stacked = stack_regridded_tsms(output, clip_to=args.shapefile)
-
-    out_path = output / "stacked_tsm.nc"
-    stacked.to_netcdf(out_path)
-    print(f"\n✅ Final stacked dataset saved to: {out_path}")
+    out_stacked = output / "stacked_tsm.nc"
+    stacked.to_netcdf(out_stacked)
+    print(f"✅ Saved stacked TSM to {out_stacked}")
 
 if __name__ == "__main__":
     main()

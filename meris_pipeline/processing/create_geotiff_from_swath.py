@@ -1,69 +1,87 @@
-import os
-import zipfile
-import shutil
-import tempfile
 from pathlib import Path
-from processing.create_geotiff_from_swath import create_geotiff_from_swath
+import xarray as xr
+import numpy as np
+from pyresample import geometry as geom
+from pyresample import kd_tree as kdt
+from osgeo import gdal, gdal_array, osr
 
-def postprocess_and_geotiff_granule(zip_path, output_root):
+def create_geotiff_from_swath(tsm_nc_path, geo_nc_path, output_path, res_deg=0.0027):
     """
-    Fully postprocess a MERIS granule:
-    - Unzip
-    - Filter needed NetCDFs
-    - Create CRS-aware GeoTIFF
-    - Clean temp space
-    - Delete original ZIP if successful
+    Converts a MERIS swath to a gridded GeoTIFF using nearest-neighbor resampling.
     """
+    tsm_nc_path = Path(tsm_nc_path)
+    geo_nc_path = Path(geo_nc_path)
+    output_path = Path(output_path)
 
-    zip_path = Path(zip_path)
-    output_root = Path(output_root)
+    # Load datasets
+    tsm_ds = xr.open_dataset(tsm_nc_path)
+    geo_ds = xr.open_dataset(geo_nc_path)
 
-    if zip_path.suffix.upper() != ".ZIP":
-        print(f"⚠️ Skipping non-ZIP file: {zip_path.name}")
+    tsm = tsm_ds["TSM_NN"].values.squeeze()
+    lat = geo_ds["latitude"].values
+    lon = geo_ds["longitude"].values
+
+    # Mask invalid values
+    mask = np.isfinite(tsm) & np.isfinite(lat) & np.isfinite(lon)
+    if np.sum(mask) == 0:
+        print("❌ No valid TSM pixels found.")
         return None
 
-    zip_stem = zip_path.stem
-    keep_files = ["tsm_nn.nc", "geo_coordinates.nc"]
+    # Define Swath and Area
+    swath_def = geom.SwathDefinition(lons=lon, lats=lat)
+    lat_min, lat_max = np.nanmin(lat), np.nanmax(lat)
+    lon_min, lon_max = np.nanmin(lon), np.nanmax(lon)
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_dir = Path(temp_dir)
+    ref_lats = np.arange(lat_min, lat_max, res_deg)
+    ref_lons = np.arange(lon_min, lon_max, res_deg)
+    cols, rows = len(ref_lons), len(ref_lats)
 
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-                print(f"📦 Unzipped: {zip_path.name}")
-        except zipfile.BadZipFile:
-            print(f"❌ Bad ZIP file: {zip_path.name}")
-            return None
+    area_extent = (lon_min, lat_min, lon_max, lat_max)
+    area_def = geom.AreaDefinition(
+        "meris_grid",  # area_id
+        "MERIS Grid",  # description
+        "latlon",  # proj_id
+        {
+            'proj': 'latlong',
+            'datum': 'WGS84'
+        },
+        cols,
+        rows,
+        area_extent
+    )
 
-        # Find required NetCDFs
-        all_nc = list(temp_dir.rglob("*.nc"))
-        needed_nc = {f.name.lower(): f for f in all_nc if f.name.lower() in keep_files}
+    index, outdex, index_array, dist_array = kdt.get_neighbour_info(
+        swath_def, area_def, radius_of_influence=5000, neighbours=1
+    )
 
-        if len(needed_nc) < 2:
-            print(f"❌ Missing required NetCDFs in {zip_path.name}")
-            return None
+    # Resample with nearest-neighbor
+    grid = kdt.get_sample_from_neighbour_info(
+        'nn', area_def.shape, tsm, index, outdex, index_array, fill_value=np.nan
+    )
 
-        # Make output folders
-        processed_folder = output_root / "processed" / zip_stem
-        processed_folder.mkdir(parents=True, exist_ok=True)
+    # Save using GDAL
+    driver = gdal.GetDriverByName("GTiff")
+    dataset = driver.Create(
+        str(output_path),
+        cols,
+        rows,
+        1,
+        gdal_array.NumericTypeCodeToGDALTypeCode(grid.dtype)
+    )
 
-        for name, path in needed_nc.items():
-            shutil.copy2(path, processed_folder / name)
-            print(f"✅ Copied {name}")
+    pixel_size_x = (lon_max - lon_min) / cols
+    pixel_size_y = (lat_max - lat_min) / rows
+    transform = [lon_min, pixel_size_x, 0, lat_max, 0, -pixel_size_y]
+    dataset.SetGeoTransform(transform)
 
-        # Now create GeoTIFF
-        geotiff_folder = output_root / "geotiffs"
-        geotiff_folder.mkdir(parents=True, exist_ok=True)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    dataset.SetProjection(srs.ExportToWkt())
 
-        create_geotiff_from_swath(
-            tsm_nc_path=processed_folder / "tsm_nn.nc",
-            geo_nc_path=processed_folder / "geo_coordinates.nc",
-            output_tif_path=geotiff_folder / f"{zip_stem}.tif"
-        )
+    band = dataset.GetRasterBand(1)
+    band.WriteArray(grid)
+    band.SetNoDataValue(np.nan)
+    band.FlushCache()
 
-        # Clean original zip if everything worked
-        os.remove(zip_path)
-        print(f"🗑️ Deleted ZIP: {zip_path.name}")
-
-        return str(processed_folder)
+    dataset = None
+    print(f"💾 Saved properly geolocated GeoTIFF: {output_path}")
