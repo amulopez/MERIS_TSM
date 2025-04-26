@@ -1,10 +1,12 @@
 from pathlib import Path
-import argparse
 from utils.config import load_config
 from query.query import query_and_download_meris
-from stack_tsms import load_stacked_tsms_from_geotiffs
+from processing.stack_tsms_from_geotiffs import stack_tsms_from_geotiffs
+import dask
+from dask.diagnostics import ProgressBar
 
 def parse_args():
+    import argparse
     parser = argparse.ArgumentParser(description="MERIS TSM Pipeline")
     parser.add_argument("--config", type=str, required=True, help="Path to config.yaml")
     parser.add_argument("--skip_query", action="store_true", help="Skip query and download")
@@ -24,9 +26,16 @@ def main():
         print("🔎 Starting query and download...")
         query_and_download_meris(bbox, start, end, output)
 
-    print("📚 Starting stacking...")
+    print("\U0001F4DA Starting stacking...")
     geotiff_folder = output / "geotiffs"
-    stacked = load_stacked_tsms_from_geotiffs(geotiff_folder, shapefile=args.shapefile)
+
+    with dask.config.set(scheduler="threads"):
+        with ProgressBar():
+            stacked = stack_tsms_from_geotiffs(
+                geotiff_folder,
+                shapefile=args.shapefile,
+                bbox=bbox
+            )
 
     out_stacked = output / "stacked_tsm.nc"
     stacked.to_netcdf(out_stacked)

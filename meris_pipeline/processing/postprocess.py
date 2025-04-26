@@ -3,10 +3,11 @@ import tempfile
 from pathlib import Path
 from processing.create_geotiff_from_swath import create_geotiff_from_swath
 
+
 def postprocess_granule(zip_path, output_root):
     """
-    Unzips a MERIS granule ZIP to a temp dir, extracts required NetCDFs,
-    and writes a CRS-aware GeoTIFF using nearest-neighbor swath-to-grid resampling.
+    Unzips a MERIS granule ZIP, extracts required NetCDFs,
+    and writes a CRS-aware GeoTIFF using nearest-neighbor swath-to-grid conversion.
     """
     zip_path = Path(zip_path)
     if zip_path.suffix.upper() != ".ZIP":
@@ -35,7 +36,7 @@ def postprocess_granule(zip_path, output_root):
                 print(f"❌ Missing required NetCDFs in {zip_path.name}")
                 return None
 
-            # Create output folder
+            # Create output folder for GeoTIFFs
             geotiff_folder = Path(output_root) / "geotiffs"
             geotiff_folder.mkdir(parents=True, exist_ok=True)
 

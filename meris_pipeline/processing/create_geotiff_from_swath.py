@@ -1,6 +1,6 @@
 from pathlib import Path
-import xarray as xr
 import numpy as np
+import xarray as xr
 from pyresample import geometry as geom
 from pyresample import kd_tree as kdt
 from osgeo import gdal, gdal_array, osr
@@ -38,17 +38,18 @@ def create_geotiff_from_swath(tsm_nc_path, geo_nc_path, output_path, res_deg=0.0
 
     area_extent = (lon_min, lat_min, lon_max, lat_max)
     area_def = geom.AreaDefinition(
-        "meris_grid",  # area_id
-        "MERIS Grid",  # description
-        "latlon",  # proj_id
-        {
-            'proj': 'latlong',
+        area_id="area_id",
+        description="MERIS Grid",
+        proj_id="latlon",
+        projection={
+            'proj': 'longlat',
             'datum': 'WGS84'
         },
-        cols,
-        rows,
-        area_extent
+        width=cols,
+        height=rows,
+        area_extent=area_extent
     )
+
 
     index, outdex, index_array, dist_array = kdt.get_neighbour_info(
         swath_def, area_def, radius_of_influence=5000, neighbours=1

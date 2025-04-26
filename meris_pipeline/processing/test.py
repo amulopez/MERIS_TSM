@@ -1,3 +1,5 @@
+
+"""
 import numpy as np
 from pyresample import geometry as geom
 from pyresample import kd_tree as kdt
@@ -9,8 +11,29 @@ import geopandas as gpd
 import rioxarray
 from datetime import datetime
 warnings.filterwarnings("ignore")
+from pathlib import Path
+from datetime import datetime
+import xarray as xr
+import rioxarray
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
 
-"""
+
+
+#-------------#
+# Load Files
+#-------------#
+tsm_path = Path("../../MERIS_downloads/processed/EN1_MDSI_MER_FRS_2P_20100401T190059_20100401T190326_042280_0142_20180216T183621_0100/tsm_nn.nc")
+geo_path = Path("../../MERIS_downloads/processed/EN1_MDSI_MER_FRS_2P_20100401T190059_20100401T190326_042280_0142_20180216T183621_0100/geo_coordinates.nc")
+output_path = Path("../../MERIS_downloads/test_output.tif")
+
+tsm_nc_path = Path(tsm_path)
+geo_nc_path = Path(geo_path)
+output_path = Path(output_path)
+
+#-------------#
+# GeoTiff Test
+#-------------#
 def create_geotiff_from_swath(tsm_nc_path, geo_nc_path, output_path, res_deg=0.0027):
 
     # Load datasets
@@ -83,73 +106,129 @@ def create_geotiff_from_swath(tsm_nc_path, geo_nc_path, output_path, res_deg=0.0
     dataset = None
     print(f"💾 Saved properly geolocated GeoTIFF: {output_path}")
 
-
-tsm_path = Path("../../MERIS_downloads/processed/EN1_MDSI_MER_FRS_2P_20100401T190059_20100401T190326_042280_0142_20180216T183621_0100/tsm_nn.nc")
-geo_path = Path("../../MERIS_downloads/processed/EN1_MDSI_MER_FRS_2P_20100401T190059_20100401T190326_042280_0142_20180216T183621_0100/geo_coordinates.nc")
-output_path = Path("../../MERIS_downloads/test_output.tif")
-
-tsm_nc_path = Path(tsm_path)
-geo_nc_path = Path(geo_path)
-output_path = Path(output_path)
-#-------------#
-# GeoTiff Test
-#-------------#
-
 create_geotiff_from_swath(tsm_nc_path, geo_nc_path, output_path)
 
-"""
+#-------------#
+# Stack Test
+#-------------#
 
-# Stacking Test
-def extract_datetime_from_filename(filename):
-    """Extract datetime from filename like TSM_20100401T185204.tif"""
-    parts = filename.stem.split("_")
-    if len(parts) >= 2:
-        try:
-            return datetime.strptime(parts[1], "%Y%m%dT%H%M%S")
-        except ValueError:
-            pass
+def extract_datetime_from_filename(filepath):
+
+    #Extract the start datetime from a filename like:
+    #TSM_EN1_MDSI_MER_FRS_2P_20100401T185204_20100401T190059_....tif
+    
+    stem = filepath.stem
+    try:
+        # Split by underscores and find the first string that looks like a timestamp
+        for part in stem.split("_"):
+            if len(part) == 15 and part.startswith("20"):
+                return datetime.strptime(part, "%Y%m%dT%H%M%S")
+    except ValueError:
+        pass
+    print(f"❌ Could not extract timestamp from {filepath.name}")
     return None
 
+def clip_stack_to_shapefile(stacked, shapefile_path):
+    #Clip stacked xarray to a shapefile using rioxarray
 
-def load_and_clip_geotiff(geotiff_path, shapefile_path=None):
-    """Load single GeoTIFF with rioxarray and clip to shapefile if provided."""
-    da = rioxarray.open_rasterio(geotiff_path, chunks="auto").squeeze()  # shape: (y, x)
-
-    if shapefile_path:
-        shp = gpd.read_file(shapefile_path)
-        shp = shp.to_crs(da.rio.crs)  # ensure CRS match
-        da = da.rio.clip(shp.geometry.values, shp.crs, drop=True)
-
-    return da
+    shp = gpd.read_file(shapefile_path)
+    shp = shp.to_crs(stacked.rio.crs)  # Ensure CRS match
+    return stacked.rio.clip(shp.geometry.values, shp.crs, drop=True)
 
 
-# Shapefile
-geotiff_dir="../MERIS_downloads/geotiffs",
-output_nc_path="../MERIS_downloads/stacked_tsm.nc",
-shapefile_path="../data/west_us_poly_ll/west_us_poly_ll.shp"
+geotiff_dir = Path("../MERIS_downloads/geotiffs")
+output_nc_path = Path("../MERIS_downloads/stacked_tsm_bare.nc")
 
-geotiff_dir = Path(geotiff_dir)
+# Find files
 files = sorted(geotiff_dir.glob("TSM_*.tif"))
+if not files:
+    raise FileNotFoundError("No matching TSM_*.tif files found.")
 
 dataarrays = []
-times = []
-
 for f in files:
-    time = extract_datetime_from_filename(f)
-    if time is None:
-        print(f"⚠️ Skipping invalid filename: {f.name}")
+    print(f"🗂️ Processing: {f.name}")
+    timestamp = extract_datetime_from_filename(f)
+    if timestamp is None:
         continue
 
-    da = rioxarray.open_rasterio(f, chunks="auto").squeeze()  # shape: (y, x)
+    try:
+        da = rioxarray.open_rasterio(f).squeeze()  # (y, x)
+        da = da.expand_dims(time=[timestamp])      # add time dimension
+        dataarrays.append(da)
+    except Exception as e:
+        print(f"⚠️ Skipping {f.name} due to error: {e}")
 
-    da = da.expand_dims(time=[time])
-    dataarrays.append(da)
-    times.append(time)
-
+# Stack along time axis
 stacked = xr.concat(dataarrays, dim="time")
 stacked.name = "TSM"
 
-print(f"📦 Saving to {output_nc_path} ...")
-stacked.to_netcdf(output_nc_path)
-print("✅ Done!")
+# Clip Stacked to ROI
+roi_shape = '../data/west_us_poly_ll/west_us_poly_ll.shp'
+stack_clip = clip_stack_to_shapefile(stacked, roi_shape)
+
+# Save out
+stack_clip.to_netcdf(output_nc_path)
+
+# Stack Daily
+stacked.coords["date"] = ("time", stacked["time"].dt.floor("D"))
+daily_mean = stacked.groupby("date").mean(dim="time", skipna=True)
+daily_mean.name = "TSM_daily"
+daily_mean.to_netcdf("TSM_daily.nc")
+
+
+#-------------#
+# Visualize Test
+#-------------#
+
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+
+def plot_tsm_slice(stacked, time_index=0, title=None):
+    #Plot a single time slice from stacked TSM data.
+    slice_da = stacked.isel(date=time_index)
+
+    fig, ax = plt.subplots(figsize=(10, 6), subplot_kw={'projection': ccrs.PlateCarree()})
+    pc = ax.pcolormesh(
+        slice_da.x, slice_da.y, slice_da,
+        cmap="viridis", shading="auto", transform=ccrs.PlateCarree()
+    )
+    ax.coastlines()
+    ax.add_feature(cfeature.BORDERS, linestyle=':')
+    ax.set_title(title or str(slice_da.time.values))
+    fig.colorbar(pc, ax=ax, label='TSM')
+    plt.show()
+"""
+
+#---------#
+# Check Stack
+#---------#
+import os
+os.environ["MPLBACKEND"] = "TkAgg"  # Weird stuff kelly needs to do for her computer and Pycharm
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import xarray as xr
+xpath = "..//MERIS_downloads/stacked_tsm.nc"
+stacked = xr.open_dataset(xpath)
+
+fig, ax = plt.subplots(1,2, figsize=(10, 8), subplot_kw={'projection': ccrs.PlateCarree()})
+ax = ax.flatten()
+
+# Plot data
+stacked.TSM.isel(time=0).plot(ax=ax[0], transform=ccrs.PlateCarree(), cmap='Spectral_r', cbar_kwargs={'label': 'TSM'})
+stacked.TSM.isel(time=1).plot(ax=ax[1], transform=ccrs.PlateCarree(), cmap='Spectral_r', cbar_kwargs={'label': 'TSM'})
+
+# Add coastlines and features
+for axt in ax:
+    axt.coastlines(resolution='10m', color='black')
+    axt.add_feature(cfeature.BORDERS, linestyle=':')
+    axt.add_feature(cfeature.LAND, facecolor='lightgray')
+
+plt.tight_layout()
+fig.figure.savefig("tsm_2days_gridded.png", dpi=300)
+print("Saved preview as tsm_day1.png")
+
+
+
 

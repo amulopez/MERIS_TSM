@@ -1,66 +1,96 @@
 # MERIS TSM Processing Pipeline
 
 This pipeline automates the end-to-end processing of MERIS Level-2 Full Resolution (FRS) Total Suspended Matter (TSM) data from NASA's LAADS DAAC, transforming swath granules into georeferenced GeoTIFFs suitable for coastal monitoring and large-scale analysis.
+
+![TSM from MERIS Over the US West Coast]("figs/tsm_2days_gridded.png")
+
 ## Features
 
-- Search and download MERIS granules using earthaccess
-- Unzip and extract relevant NetCDFs (tsm_nn.nc and geo_coordinates.nc)
-- Convert swath data to regular latitude-longitude grids (~300 m resolution)
-- Save CRS-aware GeoTIFFs for analysis and visualization in GIS platforms
-- Easily configurable via config.yaml
+- Search & Download: Automated MERIS granule discovery using earthaccess
+- Unzip & Extract: Handles nested .zip archives and extracts relevant NetCDFs (TSM_NN and geo_coordinates)
+- Swath-to-Grid: Regrids swath data to a regular lat/lon grid using pyresample (nearest-neighbor, no interpolation)
+- GeoTIFF Output: Generates CRS-aware, tiled GeoTIFFs
+- Time Stacking: Concatenates all GeoTIFFs into a daily-resolved time stack (optionally clipped by shapefile)
+- Dask Parallelism: Supports multithreaded local compute for fast processing
 
 ## Project Structure
 
 ```text
 meris_pipeline/
-├── main.py                   # Pipeline entry point
-├── config.yaml               # Config file with bbox, date range, output path
-├── query/                    # Earthdata search & download logic
-│   └── query.py
-├── processing/               # Postprocessing & swath-to-grid tools
-│   └── postprocess.py
-│   └── create_geotiff_from_swath.py
-├── utils/                    # Utility functions
-│   └── config.py
-├── outputs/                  # Placeholder for processed outputs
-├── requirements.txt          # Dependencies
+├── main.py                            # Pipeline entry point
+├── config.yaml                        # User config with bbox, date range, output path
+├── query/
+│   └── query.py                       # Queries and downloads granules
+├── processing/
+│   ├── postprocess.py                 # Extracts NetCDFs, calls regridder
+│   ├── create_geotiff_from_swath.py  # Regridding using pyresample
+│   └── stack_tsms_from_geotiffs.py   # Time-stacks GeoTIFFs
+├── utils/
+│   └── config.py                      # YAML config loader
+├── requirements.txt                   # pip dependencies
+├── environment.yml                    # Conda environment spec
+└── MERIS_downloads/                   # Output folder (zips, geotiffs, netcdfs)
+
+```
+
+## Installation
+Run the pipeline using your custom config file:
+
+Set up the Conda environment:
+
+```bash
+conda env create -f environment.yml
+conda activate meris_tsm
+```
+
+Or using pip:
+```bash
+pip install xarray rioxarray geopandas earthaccess pyresample cartopy dask[complete] matplotlib numpy pandas shapely rasterio netCDF4 scipy tqdm pyyaml
 
 ```
 
 ## Usage
-Run the pipeline using your custom config file:
+Prepare a config file (example config.yaml)
+```yaml
+bbox: [-130, 30, -110, 50]   # [west, south, east, north]
+start: 2010-04-01
+end: 2010-04-05
+out: ./MERIS_downloads
 
+```
+Then run: 
 ```bash
 python meris_pipeline/main.py --config meris_pipeline/config.yaml
+
 ```
 
-You can optionally skip querying (e.g., to reprocess downloaded data):
+To skip querying and only run stacking:
 ```bash
 python meris_pipeline/main.py --config meris_pipeline/config.yaml --skip_query
+
+```
+
+Optional shapefile clipping:
+```bash
+python meris_pipeline/main.py --config meris_pipeline/config.yaml --shapefile path/to/roi.shp
+
 ```
 
 ## Output
-- CRS-aware GeoTIFFs saved to: MERIS_downloads/geotiffs/TSM_<granule_id>.tif
-- Gridded using nearest-neighbor resampling (no interpolation)
-- Standard output grid:
-  - Latitude: based on image bounds (step ≈ 0.0027°)
-  - Longitude: based on image bounds (step ≈ 0.0027°)
-  - CRS: EPSG:4326 (WGS84)
-- Variable: TSM (log-scaled total suspended matter)
+- GeoTIFFs: MERIS_downloads/geotiffs/TSM_<timestamp>.tif
+- Stacked NetCDF: MERIS_downloads/stacked_tsm.nc
+- Optionally: daily-averaged NetCDF, clipped versions, etc.
+
+## Notes
+- Swath data is **not interpolated** — nearest-neighbor regridding minimizes spectral distortion.
+- Requires Earthdata Login credentials for `earthaccess`.
 
 ## Coming Soon
-- Time-stacked NetCDF/Zarr for multitemporal analysis
-- Shapefile/ROI masking for regional subsets
-- Parallelized batch processing for high-throughput servers
-- Merging Sentinel 3 OLCI TSM results
+- Merging Sentinel-3 OLCI TSM data for expanded temporal coverage.
+- Zarr-based output support for scalable, cloud-ready analysis.
 
-## Dependencies
-Install required packages with:
+## Next Steps
+- Integrate QA checks and tile validity reporting.
+- Enable optional cloud export (e.g., S3 buckets).
+- Further optimize parallelism for server-based batch subsetting.
 
-```bash
-pip install -r requirements.txt
-```
-
-Includes:
-- xarray, rioxarray, numpy, earthaccess 
-- pyresample, GDAL, pyproj
