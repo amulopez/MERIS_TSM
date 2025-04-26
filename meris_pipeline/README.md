@@ -2,7 +2,7 @@
 
 This pipeline automates the end-to-end processing of MERIS Level-2 Full Resolution (FRS) Total Suspended Matter (TSM) data from NASA's LAADS DAAC, transforming swath granules into georeferenced GeoTIFFs suitable for coastal monitoring and large-scale analysis.
 
-![TSM from MERIS Over the US West Coast]("figs/tsm_2days_gridded.png")
+![TSM from MERIS Over the US West Coast](/Users/kluis/PycharmProjects/MERIS_TSM/meris_pipeline/figs/tsm_2days_gridded.png)
 
 ## Features
 
