@@ -1,0 +1,27 @@
+name: meris_tsm
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - xarray
+  - rioxarray
+  - geopandas
+  - earthaccess
+  - pyresample>=1.31  # Ensures latest features for swath-to-grid
+  - cartopy
+  - dask
+  - distributed       # Recommended for dask parallelism
+  - matplotlib
+  - numpy
+  - pandas
+  - shapely
+  - rasterio
+  - netCDF4
+  - scipy
+  - tqdm
+  - pyyaml
+  - pip
+  - pip:
+      - pyproj         # Sometimes needed alongside cartopy/geopandas
